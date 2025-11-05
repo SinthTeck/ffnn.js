@@ -2,23 +2,35 @@ import { transpose, map, ones, random, dotMultiply, add, multiply, sum, zeros, s
 
 class NeuralNetwork {
     inputs_size
-    hidden1_size
-    hidden2_size
+    hidden_size
     output_size
 
-    constructor(inputs_size, hidden1_size, hidden2_size, output_size) {
+    constructor(inputs_size, hidden_size, output_size) {
         this.inputs_size = inputs_size
-        this.hidden1_size = hidden1_size
-        this.hidden2_size = hidden2_size
+        this.hidden_sizes = hidden_size
         this.output_size = output_size
+        this.weights = []
+        this.bias = []
 
-        this.weights_input_hidden1 = map(ones(inputs_size, hidden1_size), random)
-        this.weights_hidden1_hidden2 = map(ones(hidden1_size, hidden2_size), random)
-        this.weights_hidden2_output = map(ones(hidden2_size, output_size), random)
+        this.activations = []
+        this.outputs = []
 
-        this.bias_hidden1 = zeros(1, hidden1_size)
-        this.bias_hidden2 = zeros(1, hidden2_size)
-        this.bias_output = zeros(1, output_size)
+        this.output = 0
+        
+        this.weights.push(map(ones(inputs_size, hidden_size[0]), random))
+        for(let i=0; i<this.hidden_sizes.length; i++) {
+            if(i===this.hidden_sizes.length-1){
+                break;
+            }
+            this.weights.push(map(ones(this.hidden_sizes[i], this.hidden_sizes[i+1]), random))
+        }
+        this.weights.push(map(ones(this.hidden_sizes[this.hidden_sizes.length-1], output_size), random))
+
+        for(let i=0; i<this.hidden_sizes.length; i++){
+            this.bias.push(zeros(1, this.hidden_sizes[i]))
+        }
+
+        this.bias.push(zeros(1, output_size))
     }
 
     sigmoid(x) {
@@ -30,37 +42,50 @@ class NeuralNetwork {
     }
 
     feedforward(X) {
-        this.hidden1_activation = add(multiply(X, this.weights_input_hidden1), this.bias_hidden1)
-        this.hidden1_output = map(this.hidden1_activation, this.sigmoid)
+        this.activations = []
+        this.outputs = []
+        for(let i=0; i<this.weights.length; i++) {
+            if(i===0){
+                this.activations.push(add(multiply(X, this.weights[i]), this.bias[i]))
+                this.outputs.push(map(this.activations[i], this.sigmoid))
+            } else {
+                this.activations.push(add(multiply(this.outputs[i-1], this.weights[i]), this.bias[i]))
+                this.outputs.push(map(this.activations[i], this.sigmoid))
+            }
+        }
+        this.output = this.outputs[this.outputs.length-1]
 
-        this.hidden2_activation = add(multiply(this.hidden1_output, this.weights_hidden1_hidden2), this.bias_hidden2)
-        this.hidden2_output = map(this.hidden2_activation, this.sigmoid)
-
-        this.output_activation = add(multiply(this.hidden2_output, this.weights_hidden2_output), this.bias_output)
-        this.predicted_output = map(this.output_activation, this.sigmoid)
-
-        return this.predicted_output
+        return this.output
     }
 
     backward(X, y, learningRate = 0.1) {
-        let output_error = subtract(y, this.predicted_output);
+        const deltas = [];
+        const numLayers = this.weights.length;
         
-        let output_delta = dotMultiply(output_error, map(this.predicted_output, this.sigmoid_derivative))
+        const output_error = subtract(y, this.output);
+        const output_delta = dotMultiply(output_error, map(this.output, this.sigmoid_derivative));
+        deltas.push(output_delta);
         
-        let hidden2_error = multiply(output_delta, transpose(this.weights_hidden2_output))
-        let hidden2_delta = dotMultiply(hidden2_error, map(this.hidden2_output, this.sigmoid_derivative))
-    
-        let hidden1_error = multiply(hidden2_delta, transpose(this.weights_hidden1_hidden2))
-        let hidden1_delta = dotMultiply(hidden1_error, map(this.hidden1_output, this.sigmoid_derivative))
-
-        this.weights_hidden2_output = add(this.weights_hidden2_output, dotMultiply(multiply(transpose(this.hidden2_output), output_delta), learningRate))
-        this.bias_output = sum(output_delta) * learningRate
-
-        this.weights_hidden1_hidden2 = add(this.weights_hidden1_hidden2, dotMultiply(multiply(transpose(this.hidden1_output), hidden2_delta), learningRate))
-        this.bias_hidden2 = sum(hidden2_delta) * learningRate
-
-        this.weight_input_hidden1 = add(this.weights_input_hidden1, dotMultiply(multiply(transpose(X), hidden1_delta), learningRate))
-        this.bias_hidden1 = sum(hidden1_delta) * learningRate
+        for(let i = numLayers - 2; i >= 0; i--) {
+            const error = multiply(deltas[0], transpose(this.weights[i + 1]));
+            const delta = dotMultiply(error, map(this.outputs[i], this.sigmoid_derivative));
+            deltas.unshift(delta);
+        }
+        
+        for(let i = 0; i < numLayers; i++) {
+            let input;
+            if(i === 0) {
+                input = X;
+            } else {
+                input = this.outputs[i - 1];
+            }
+            
+            const weight_gradient = multiply(transpose(input), deltas[i]);
+            this.weights[i] = add(this.weights[i], dotMultiply(weight_gradient, learningRate));
+            
+            const bias_gradient = sum(deltas[i], 0);
+            this.bias[i] = add(this.bias[i], dotMultiply(bias_gradient, learningRate));
+        }
     }
 
     train(X, y, epochs, learningRate) {
